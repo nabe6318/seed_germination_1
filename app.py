@@ -10,7 +10,7 @@ from io import StringIO
 st.set_page_config(page_title="発芽試験の集計（CSVアップロード対応）", layout="wide")
 # 通常の st.title ではなく st.markdown を使う
 st.markdown(
-    "<h3 style='text-align: center; color: green;'>🌱 発芽試験の集計 / Germination Metrics (CSV upload ready)</h3>",
+    "<h3 style='text-align: center; color: green;'>🌱 信大雑草研専用・発芽試験の集計 / Germination Metrics (CSV upload ready)</h3>",
     unsafe_allow_html=True
 )
 
@@ -217,4 +217,5 @@ else:
         ),
         height=130
     )
+
 
