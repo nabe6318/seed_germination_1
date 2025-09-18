@@ -1,16 +1,28 @@
 # app.py
-# 発芽試験データのインタラクティブ集計（Streamlit）
-# 追加: CSVアップロード対応（列名が異なる場合も列マッピングで対応）
+# 発芽試験データのインタラクティブ集計（CSVアップロード対応 + 計算式表示）
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from io import StringIO
 
+# -----------------------------
+# 画面設定＆タイトル（小さめ）
+# -----------------------------
 st.set_page_config(page_title="発芽試験の集計（CSVアップロード対応）", layout="wide")
-# 通常の st.title ではなく st.markdown を使う
 st.markdown(
-    "<h3 style='text-align: center; color: green;'>🌱 信大雑草研専用・発芽試験の集計 / Germination Metrics (CSV upload ready)</h3>",
+    "<h3 style='margin:0.2rem 0;'>🌱 信大雑草研・発芽試験の集計 / Germination Metrics (CSV upload ready)</h3>",
+    unsafe_allow_html=True
+)
+
+# （任意）見出しサイズの一括調整
+st.markdown(
+    """
+    <style>
+    h1 {font-size:24px !important;}
+    h2 {font-size:20px !important;}
+    h3 {font-size:18px !important;}
+    </style>
+    """,
     unsafe_allow_html=True
 )
 
@@ -21,11 +33,11 @@ st.markdown("""
    - 例: `t,n` / `day,count` などでもOK（画面でマッピング）  
 2. CSVがない場合は下の **編集可能な表** で直接入力（行の追加・削除可）  
 3. サイドバーで **供試種子数 N** を設定  
-4. 指標とグラフが自動更新されます
+4. 指標とグラフ、要約（計算式付き）が自動更新されます
 """)
 
 # -----------------------------
-# サイドバー（設定）
+# サイドバー（CSV & 設定）
 # -----------------------------
 with st.sidebar:
     st.header("📥 CSVアップロード / Upload CSV")
@@ -58,12 +70,11 @@ with st.sidebar:
 uploaded_df = None
 if uploaded is not None:
     try:
-        # pandasで読み込み（自動エンコーディング検出は行わずUTF-8想定）
         uploaded_df = pd.read_csv(uploaded)
     except Exception as e:
         st.error(f"CSVの読み込みに失敗しました: {e}")
 
-# 列マッピングUI（CSVに2列以上ある・列名が異なる場合の対応）
+# 列マッピングUI（CSVの列名が異なる場合に対応）
 if uploaded_df is not None and not uploaded_df.empty:
     st.subheader("🗂️ CSVプレビュー / CSV Preview")
     st.dataframe(uploaded_df.head(), use_container_width=True)
@@ -80,7 +91,7 @@ if uploaded_df is not None and not uploaded_df.empty:
     df_raw.columns = ["t(日数)", "n(日別発芽数)"]
 
 else:
-    # CSVがない場合は編集表の初期値を表示
+    # CSVがない場合は編集表を表示
     st.subheader("✍️ データ入力 / Data Entry (編集可能)")
     st.caption("表を直接編集／行追加／行削除できます。CSVがあれば左からアップロードしてください。")
     default_t = list(range(1, 13))
@@ -109,11 +120,11 @@ for col in df.columns:
     df[col] = pd.to_numeric(df[col], errors="coerce")
 df = df.dropna()
 
-# t で昇順ソート（ユーザーが順不同で入力してもOK）
+# t で昇順ソート（順不同入力対応）
 if not df.empty:
     df = df.sort_values("t(日数)", kind="mergesort").reset_index(drop=True)
 
-# 整数丸め（必要なら）
+# 整数丸めと安全対策
 if not df.empty:
     df["t(日数)"] = df["t(日数)"].round().astype(int)
     df["n(日別発芽数)"] = df["n(日別発芽数)"].round().astype(int)
@@ -139,7 +150,7 @@ else:
     # 平均発芽速度 (MGS) = Σn / Σ(t*n) = 1 / MDG
     MGS = germinated / (t * n).sum()
 
-    # 斉一発芽係数（重み付き）
+    # 斉一発芽係数（重み付き）: var_w = Σ((t - MDG)^2 * n) / Σn、 UGC = 1/var_w
     var_w = ((t - MDG) ** 2 * n).sum() / germinated
     UGC_weighted = np.inf if var_w == 0 else 1.0 / var_w
 
@@ -207,15 +218,31 @@ else:
         use_container_width=True
     )
 
+    # -----------------------------
+    # 結果の要約（計算式も表示）
+    # -----------------------------
+    summary_text = f"""
+【計算結果 / Results】
+Σn = {int(germinated)}, N = {N_total}
+最終累積発芽率 = {cum_germ_pct_final:.2f} %
+
+平均発芽日数 (MDG) = {MDG:.3f} 日
+平均発芽速度 (MGS) = {MGS:.6f} 1/日
+斉一発芽係数（重み付き） = {UGC_weighted:.6f}（分散 = {var_w:.6f}）
+""" + (
+        f"参考：非重み付き = {UGC_unweighted:.6f}（分散 = {var_unw:.6f}）\n"
+        if show_reference_unweighted else ""
+    ) + """
+
+【計算式 / Formulae】
+- 最終累積発芽率 (%) = 100 × Σn / N
+- 平均発芽日数 (MDG) = Σ(t × n) / Σn
+- 平均発芽速度 (MGS) = Σn / Σ(t × n) = 1 / MDG
+- 斉一発芽係数 (UGC) = 1 / [ Σ((t − MDG)² × n) / Σn ]
+"""
+
     st.text_area(
-        "結果の要約 / Summary (copy-ready)",
-        value=(
-            f"Σn={int(germinated)}, N={N_total}, 最終累積発芽率={cum_germ_pct_final:.2f}%\n"
-            f"MDG={MDG:.3f} 日, MGS={MGS:.6f} 1/日\n"
-            f"斉一発芽係数（重み付き）={UGC_weighted:.6f}（分散={var_w:.6f}）\n"
-            + (f"参考：非重み付き={UGC_unweighted:.6f}（分散={var_unw:.6f}）" if show_reference_unweighted else "")
-        ),
-        height=130
+        "結果の要約 / Summary (with formulae)",
+        value=summary_text.strip(),
+        height=240
     )
-
-
